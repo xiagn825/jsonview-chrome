@@ -34,6 +34,27 @@ if(/^\<pre.*\>(.*)\<\/pre\>$/.test(this.data)){
   this.data = this.data.replace(/<(?:.|\s)*?>/g, ''); //Aggressively strip HTML.
 }
 
+
+
+function BASE64Formatter() {
+
+}
+BASE64Formatter.prototype = {
+  isBase64Str: function(str) {
+    return /^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)$/.test(str);
+  },
+
+  formatBase64Str: function(str) {
+    if (this.isBase64Str(str)){
+      return decodeURIComponent(escape(atob(str)))
+    }
+    return str;
+  }
+}
+this.base64Formatter = new BASE64Formatter();
+
+this.data = this.base64Formatter.formatBase64Str(this.data);
+
 // Test if what remains is JSON or JSONp
 var json_regex = /^\s*([\[\{].*[\}\]])\s*$/; // Ghetto, but it works
 var jsonp_regex = /^[\s\u200B\uFEFF]*([\w$\[\]\.]+)[\s\u200B\uFEFF]*\([\s\u200B\uFEFF]*([\[{][\s\S]*[\]}])[\s\u200B\uFEFF]*\);?[\s\u200B\uFEFF]*$/;
@@ -148,6 +169,26 @@ if(is_json || is_jsonp){
       return this.toHTML(output, uri);
     },
 
+    // Convert a whole JSON object into a formatted HTML document.
+    jsonAndParamToHTML: function(json, paramJson, callback, uri) {
+      var output = '';
+      if( callback ){
+        output += '<div class="callback">' + callback + ' (</div>';
+      } 
+      if ( paramJson ) {
+        output += '<h2>请求参数</h2>'
+        output += '<div class="param">' + this.valueToHTML(paramJson) + ' </div>';
+        output += '<h2>返回结果</h2>'
+      }
+      output += '<div id="json">';
+      output += this.valueToHTML(json);
+      output += '</div>';
+      if( callback ){
+        output += '<div class="callback">)</div>';
+      }
+      return this.toHTML(output, uri);
+    },
+
     // Produce an error document for when parsing fails.
     errorPage: function(error, data, uri) {
       // var output = '<div id="error">' + this.stringbundle.GetStringFromName('errorParsing') + '</div>';
@@ -191,6 +232,7 @@ if(is_json || is_jsonp){
   var outputDoc = '';
   // text = text.match(jsonp_regex)[1]; 
   var cleanData = '',
+      paramData = '',
       callback = '';
 
   var callback_results = jsonp_regex.exec(this.data);
@@ -203,13 +245,30 @@ if(is_json || is_jsonp){
     cleanData = this.data;
   }
   console.log(cleanData);
+
+  // 增加对参数的处理
+  // 区别请求和参数
+  try {
+    this.param = this.uri.split("?")[1];
+    this.uri = this.uri.split("?")[0];
+    if (this.param) {
+      paramData = JSON.parse(this.base64Formatter.formatBase64Str(this.param));
+    }
+  }catch(e) {
+    this.uri = this.uri;
+  }
+  console.log(paramData);
   
   // Covert, and catch exceptions on failure
   try {
     // var jsonObj = this.nativeJSON.decode(cleanData);
     var jsonObj = JSON.parse(cleanData);
-    if ( jsonObj ) {        
-      outputDoc = this.jsonFormatter.jsonToHTML(jsonObj, callback, this.uri);
+    if ( jsonObj ) {   
+      if (paramData) {
+        outputDoc = this.jsonFormatter.jsonAndParamToHTML(jsonObj, paramData, callback, this.uri);
+      } else {
+        outputDoc = this.jsonFormatter.jsonToHTML(jsonObj, callback, this.uri);
+      } 
     } else {
       throw "There was no object!";
     }
@@ -217,6 +276,9 @@ if(is_json || is_jsonp){
     console.log(e);
     outputDoc = this.jsonFormatter.errorPage(e, this.data, this.uri);
   }
+
+
+  
 
 
   var links = '<link rel="stylesheet" type="text/css" href="'+chrome.extension.getURL("default.css")+'">' + 
